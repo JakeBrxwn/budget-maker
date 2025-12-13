@@ -4,21 +4,23 @@ This is going to be a finance module. The main file. Should only be one file.
 """
 import os
 import getpass
-import sys
 import datetime
 import json
 
 PATHTOOS = f"/home/{getpass.getuser()}/Documents/budgeter"
+FILELOCATION = f"{PATHTOOS}/saved.json"
 
 class Money:
     """
     Handles money for users. Keeps track of items persistently.
     """
 
+    _last_date: str
     const_purchases: int
+    cur_balance: int
     income: int
-    cur_purchases: int
     last_balance: int
+    last: bool
 
     def __init__(self, last = False):
         """
@@ -26,11 +28,18 @@ class Money:
         """
         self.last = last
         if self.last:
-            print("Coming soon!")
+            with open(FILELOCATION, 'r', encoding='utf-8') as data_file:
+                save_data = json.load(data_file)
+                self.last_balance = save_data['class_data']['cur_balance']
+                self.cur_balance = self.last_balance
+                self.income = save_data['class_data']['income']
+                self.const_purchases = save_data['class_data']['bills']
+                self._last_date = save_data['date']
+            print("Successfully loaded save data.")
         else:
             self.cur_balance = 0
             self.income = 0
-            self.cur_purchases = 0
+            self.const_purchases = 0
             self.last_balance = 0
 
     def get_balance(self) -> int:
@@ -75,6 +84,12 @@ class Money:
         """
         return self.income
 
+    def get_last_date(self):
+        """
+        Returns a timestamp of the last saved session.
+        """
+        return self._last_date
+
 
 def finance_handler(user: Money) -> None:
     """
@@ -89,39 +104,40 @@ def finance_handler(user: Money) -> None:
     credit_free = int(input("Please enter how much credit you have: "))
     credit_to_pay = int(input("Please select how much debt you plan on paying off: "))
     overall_credit = int(input("Account for how much overall credit you have: "))
-    credit_debt = overall_credit - credit_free - credit_to_pay
+    credit_debt = (overall_credit - credit_free) - credit_to_pay
     print(
-        "You have ",
+        "\n You have ",
         credit_debt,
         " in debt. You have ",
         post_bills,
         " after this. Overall debt is: ",
         post_bills - credit_debt,
-        "\n Depending on your income, you will recoup this for a month.",
+        "\n Depending on your income, you will recoup this for a month. \n",
     )
-    post_money = 0
-    user.set_income(int(input("This should be your income.")))
-    if user.get_income() <= 0:
-        print(
-            "You need to look for income to make this sustainable.\n",
-            "That said, you will have the same amount as before. \n",
-        )
-    print(
-        "Assuming this is monthly, you will have this after you're paid: ",
-        user.get_income() + post_bills - credit_debt,
-    )
+    if not user.last:
+        user.set_income(int(input("This should be your income: ")))
+        if user.get_income() <= 0:
+            print(
+                "You need to look for income to make this sustainable.\n",
+                "That said, you will have the same amount as before. \n",
+            )
     post_money = user.get_income() + post_bills - credit_debt
+    print(
+        "You will have this amount after you're paid: ",
+        post_money,
+    )
     user.set_balance(post_money)
+
     print(
         "Now tell us how many things you will be buying and the cost.\n",
         "Note: Tell us to stop by entering any negative number. \n",
     )
-
     spend_amt = 0
     while True:
         indulges = int(input("Enter your money spent on indulgences: "))
-        if indulges < 0: break
-        else: spend_amt += indulges
+        if indulges < 0:
+            break
+        spend_amt += indulges
     user.set_balance(user.get_balance() - spend_amt)
     print(
         "After indulging, you will have ",
@@ -134,51 +150,88 @@ def finance_handler(user: Money) -> None:
         "Beginning file save... \n",
     )
     json_data_str = {
-        'date': datetime.datetime.now(),
+        'date': datetime.datetime.now().strftime('%Y-%m-%d'),
         'class_data': {
             'cur_balance': user.get_balance(),
             'income': user.get_income(),
-            'cur_purchases': user.get_const_purch(),
+            'bills': user.get_const_purch(),
             'last_balance': user.get_last_bal(),
         },
     }
     new_file = f"{PATHTOOS}/saved.json"
-    with open(new_file, "w") as json_file:
+    with open(new_file, "w", encoding='utf-8') as json_file:
         json.dump(json_data_str, json_file)
-    if os.path.isfile(new_file): print("Save file written.")
-    else: print("Failed to write file. Continuing as normal.")
+    if os.path.isfile(new_file):
+        print("Save file written.")
+    else:
+        print("Failed to write file. Continuing as normal.")
 
 def start() -> None:
     """
     Assert the beginning of program.
     """
+
     print("Hello, welcome to your budget manager.")
     print("We're checking if you have something on file...\n")
-    if os.path.isdir(PATHTOOS):
+
+    if os.path.isdir(PATHTOOS) and os.path.isfile(FILELOCATION):
         print("Welcome back. We loaded your prior finances")
-        print("This feature is coming soon.")
+        u_money = Money(True)
+        print(
+            "The last time you used us was on ", 
+            u_money.get_last_date(),
+            "\n Would you like to update any of your items?",
+        )
+
+        choice = input("Enter either yes or no. Y or N also works.")
+        if choice.lower() == 'yes' or choice.lower() == 'y':
+            print("\n Perfect. Has your balance changed? It was ", u_money.get_last_bal())
+            choice = input("Enter either yes or no. Y or N also works.")
+            if choice.lower() == 'yes' or choice.lower() == 'y':
+                choice = input('enter your new balance:')
+                u_money.set_balance(int(choice))
+
+            print("\n Ok! Has your monthly income changed?")
+            choice = input("Enter either yes or no. Y or N also works.")
+            if choice.lower() == 'yes' or choice.lower() == 'y':
+                choice = input('enter your new income:')
+                u_money.set_income(int(choice))
+
+            print("\n Finally, has the amount you pay for bills changed?")
+            choice = input("Enter either yes or no. Y or N also works.")
+            if choice.lower() == 'yes' or choice.lower() == 'y':
+                choice = input('enter your new amount spent on bills:')
+                u_money.set_const_purch(int(choice))
+
+            print("\n We're all up to date. We will now continue as normal. \n")
+            finance_handler(u_money)
+        else:
+            print("Okay, let's continue as normal.")
+            finance_handler(u_money)
+
+        print("See you again! :D")
+
     else:
-        print("You're new here. We will create a directory for your items.")
-        os.mkdir(PATHTOOS)
-        print("Path made. We will handle your finances now.\n")
+        if os.path.isdir(PATHTOOS):
+            print("Seems you lost your data... apologies. We will have to start new.")
+        else:
+            print("You're new here. We will create a directory for your items.")
+            os.mkdir(PATHTOOS)
+            print("Path made. We will handle your finances now.\n")
+
         u_money = Money()
         print("How much money do you have right now? Only enter a number.")
         uc_money = input("Enter a number: ")
-        if uc_money.isdigit():
-            print("Good job. Now enter how much you constantly spend.")
-            u_money.set_balance(int(uc_money))
-        else:
-            print("We cannot handle a value that contains letters. Goodbye")
-            sys.exit(1)
+        u_money.set_balance(int(uc_money))
+
+        print("Good job. Now enter how much you constantly spend.")
         uc_money = input("Enter a number: ")
-        if uc_money.isdigit():
-            print("Great, we'll start handling your finances now.")
-            u_money.set_const_purch(int(uc_money))
-            finance_handler(u_money)
-            print("Goodbye :D")
-        else:
-            print("We cannot handle a value that contains letters. Goodbye.")
-            sys.exit(1)
+        u_money.set_const_purch(int(uc_money))
+
+        print("Great, we'll start handling your finances now. \n")
+        finance_handler(u_money)
+
+        print("Goodbye :D")
 
 
 if __name__ == "__main__":
