@@ -1,237 +1,161 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
-This is going to be a finance module. The main file. Should only be one file.
+Work out how much of your monthly take-home pay is left after fixed bills.
 """
-import os
-import getpass
-import datetime
+import fcntl
 import json
+import os
+import re
+from decimal import Decimal
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
-PATHTOOS = f"/home/{getpass.getuser()}/Documents/budgeter"
-FILELOCATION = f"{PATHTOOS}/saved.json"
+FILELOCATION = Path.home() / "Documents" / "budgeter" / "saved.json"
+BILLS = (
+    "Rent (including utilities)", "Internet", "Phone", "Car", "Insurance",
+    "Subscriptions", "Other fixed bills", "Credit cards", "Personal loans",
+    "Student loans", "Medical loans", "Miscellaneous loans and debts",
+)
+OLD_BILLS = "Unitemized bills from your old budget"
 
-class Money:
+
+def amount(value) -> Decimal:
     """
-    Handles money for users. Keeps track of items persistently.
+    Read a dollar amount without rounding away a fraction of a cent.
+
+    Args:
+        value: A string or number representing a dollar amount.
+    Returns:
+        A Decimal representing the dollar amount.
     """
-
-    _last_date: str
-    const_purchases: int
-    cur_balance: int
-    income: int
-    last_balance: int
-    last: bool
-
-    def __init__(self, last = False):
-        """
-        Initialize the class.
-        """
-        self.last = last
-        if self.last:
-            with open(FILELOCATION, 'r', encoding='utf-8') as data_file:
-                save_data = json.load(data_file)
-                self.last_balance = save_data['class_data']['cur_balance']
-                self.cur_balance = self.last_balance
-                self.income = save_data['class_data']['income']
-                self.const_purchases = save_data['class_data']['bills']
-                self._last_date = save_data['date']
-            print("Successfully loaded save data.")
-        else:
-            self.cur_balance = 0
-            self.income = 0
-            self.const_purchases = 0
-            self.last_balance = 0
-
-    def get_balance(self) -> int:
-        """
-        Grab the user's current balance.
-        """
-        return self.cur_balance
-
-    def set_balance(self, i: int):
-        """
-        Set the current balance for a user.
-        """
-        self.cur_balance = i
-
-    def get_const_purch(self) -> int:
-        """
-        Get the constant purchase amounts.
-        """
-        return self.const_purchases
-
-    def set_const_purch(self, i: int):
-        """
-        Setting constant purchase amounts.
-        """
-        self.const_purchases = i
-
-    def get_last_bal(self):
-        """
-        This does not have merit yet.
-        """
-        return self.last_balance
-
-    def set_income(self, i: int):
-        """
-        Set the user's consistent income.
-        """
-        self.income = i
-
-    def get_income(self):
-        """
-        Return the user's consistent income.
-        """
-        return self.income
-
-    def get_last_date(self):
-        """
-        Returns a timestamp of the last saved session.
-        """
-        return self._last_date
+    if not re.fullmatch(r"(?:[0-9]{1,15}(?:\.[0-9]{0,2})?|\.[0-9]{1,2})", str(value)):
+        raise ValueError("Enter a nonnegative dollar amount with up to two decimal places.")
+    return Decimal(value)
 
 
-def finance_handler(user: Money) -> None:
+def ask_amount(label, current) -> Decimal:
     """
-    Manage all finances through inputs given by the user.
-    """
-    post_bills = user.get_balance() - user.get_const_purch()
-    print("You have ", post_bills, " for money after your bills are applied.")
-    print(
-        "Do you have any debt or credit cards you want to account for? \n",
-        "if yes, please enter how much available credit you have and how much you will pay off",
-    )
-    credit_free = int(input("Please enter how much credit you have: "))
-    credit_to_pay = int(input("Please select how much debt you plan on paying off: "))
-    overall_credit = int(input("Account for how much overall credit you have: "))
-    credit_debt = (overall_credit - credit_free) - credit_to_pay
-    print(
-        "\n You have ",
-        credit_debt,
-        " in debt. You have ",
-        post_bills,
-        " after this. Overall debt is: ",
-        post_bills - credit_debt,
-        "\n Depending on your income, you will recoup this for a month. \n",
-    )
-    if not user.last:
-        user.set_income(int(input("This should be your income: ")))
-        if user.get_income() <= 0:
-            print(
-                "You need to look for income to make this sustainable.\n",
-                "That said, you will have the same amount as before. \n",
-            )
-    post_money = user.get_income() + post_bills - credit_debt
-    print(
-        "You will have this amount after you're paid: ",
-        post_money,
-    )
-    user.set_balance(post_money)
+    Ask the user for a dollar amount, with a default value.
 
-    print(
-        "Now tell us how many things you will be buying and the cost.\n",
-        "Note: Tell us to stop by entering any negative number. \n",
-    )
-    spend_amt = 0
+    Args:
+        label: A string describing the amount.
+        current: The current value of the amount.
+    Returns:
+        A Decimal representing the user's input.
+    """
     while True:
-        indulges = int(input("Enter your money spent on indulgences: "))
-        if indulges < 0:
-            break
-        spend_amt += indulges
-    user.set_balance(user.get_balance() - spend_amt)
-    print(
-        "After indulging, you will have ",
-        user.get_balance(),
-        " left over.\n",
-    )
+        answer = input(f"{label} [${current:,.2f}]: ").strip()
+        if not answer:
+            return current
+        try:
+            return amount(answer)
+        except ValueError as error:
+            print(error)
 
-    print(
-        "Now that you have calculated everything, we will save this session.",
-        "Beginning file save... \n",
-    )
-    json_data_str = {
-        'date': datetime.datetime.now().strftime('%Y-%m-%d'),
-        'class_data': {
-            'cur_balance': user.get_balance(),
-            'income': user.get_income(),
-            'bills': user.get_const_purch(),
-            'last_balance': user.get_last_bal(),
-        },
-    }
-    new_file = f"{PATHTOOS}/saved.json"
-    with open(new_file, "w", encoding='utf-8') as json_file:
-        json.dump(json_data_str, json_file)
-    if os.path.isfile(new_file):
-        print("Save file written.")
+
+def old_amount(value, label) -> Decimal:
+    """
+    Read a dollar amount from the old budget, with a default value of zero.
+
+    Args:
+        value: A string or number representing a dollar amount.
+        label: A string describing the amount.
+    Returns:
+        A Decimal representing the dollar amount, or zero if the value is negative.
+    """
+    if type(value) is int and value < 0:
+        print(f"Your old {label} was {value}. Its starting amount is now $0.00.")
+        return Decimal(0)
+    return amount(value)
+
+
+def load_budget():
+    """
+    Load this month's starting figures, including budgets from the original script.
+    """
+    try:
+        with FILELOCATION.open(encoding="utf-8") as data_file:
+            profile = json.load(data_file, parse_float=Decimal)
+    except FileNotFoundError:
+        print("Let's set up your monthly budget.")
+        return Decimal(0), {}
+
+    if "class_data" in profile:
+        old = profile["class_data"]
+        print("Your old budget has one bill total. Confirm your take-home income below.")
+        return old_amount(old["income"], "income"), {OLD_BILLS: old_amount(old["bills"], "bill total")}
+
+    bills = profile["bills"]
+    if not isinstance(bills, dict) or not set(bills).issubset((*BILLS, OLD_BILLS)):
+        raise ValueError("Unrecognized bill categories in your save file.")
+    print("Welcome back. Here are your saved monthly amounts.")
+    return amount(profile["income"]), {name: amount(value) for name, value in bills.items()}
+
+
+def save_budget(income, bills) -> None:
+    """
+    Save this month's starting figures, including budgets from the original script.
+
+    Args:
+        income: A Decimal representing the user's monthly take-home pay.
+        bills: A dictionary mapping bill names to Decimal amounts.
+    Returns:
+        Nothing. Writes the budget to a JSON file.
+    """
+    profile = {"income": str(income), "bills": {name: str(cost) for name, cost in bills.items()}}
+    temp = NamedTemporaryFile(mode="w", encoding="utf-8", dir=FILELOCATION.parent, delete=False)
+    try:
+        with temp:
+            json.dump(profile, temp, indent=2)
+        os.replace(temp.name, FILELOCATION)
+    finally:
+        Path(temp.name).unlink(missing_ok=True)
+
+
+def finance_handler() -> None:
+    """
+    Ask the user for their monthly income and bills, then save the budget.
+    """
+    income, bills = load_budget()
+    print("Press Enter to keep the amount shown, or type a new monthly amount.")
+    income = ask_amount("Monthly income after tax", income)
+    print("Enter monthly bills and the payment you make each month on each type of debt.")
+    for name in BILLS:
+        bills[name] = ask_amount(name, bills.get(name, Decimal(0)))
+    if OLD_BILLS in bills:
+        print("Keep only the part of your old bill total you haven't entered above.")
+        remainder = ask_amount(OLD_BILLS, bills[OLD_BILLS])
+        if remainder:
+            bills[OLD_BILLS] = remainder
+        else:
+            del bills[OLD_BILLS]
+
+    total = sum(bills.values())
+    remaining = income - total
+    save_budget(income, bills)
+    print(f"Budget saved. Monthly bills and debt payments: ${total:,.2f}.")
+    if remaining < 0:
+        print(f"Your monthly payments exceed your income by ${-remaining:,.2f}.")
     else:
-        print("Failed to write file. Continuing as normal.")
+        print(f"You have ${remaining:,.2f} left this month after bills.")
+
 
 def start() -> None:
-    """
-    Assert the beginning of program.
-    """
-
     print("Hello, welcome to your budget manager.")
-    print("We're checking if you have something on file...\n")
-
-    if os.path.isdir(PATHTOOS) and os.path.isfile(FILELOCATION):
-        print("Welcome back. We loaded your prior finances")
-        u_money = Money(True)
-        print(
-            "The last time you used us was on ", 
-            u_money.get_last_date(),
-            "\n Would you like to update any of your items?",
-        )
-
-        choice = input("Enter either yes or no. Y or N also works.")
-        if choice.lower() == 'yes' or choice.lower() == 'y':
-            print("\n Perfect. Has your balance changed? It was ", u_money.get_last_bal())
-            choice = input("Enter either yes or no. Y or N also works.")
-            if choice.lower() == 'yes' or choice.lower() == 'y':
-                choice = input('enter your new balance:')
-                u_money.set_balance(int(choice))
-
-            print("\n Ok! Has your monthly income changed?")
-            choice = input("Enter either yes or no. Y or N also works.")
-            if choice.lower() == 'yes' or choice.lower() == 'y':
-                choice = input('enter your new income:')
-                u_money.set_income(int(choice))
-
-            print("\n Finally, has the amount you pay for bills changed?")
-            choice = input("Enter either yes or no. Y or N also works.")
-            if choice.lower() == 'yes' or choice.lower() == 'y':
-                choice = input('enter your new amount spent on bills:')
-                u_money.set_const_purch(int(choice))
-
-            print("\n We're all up to date. We will now continue as normal. \n")
-            finance_handler(u_money)
-        else:
-            print("Okay, let's continue as normal.")
-            finance_handler(u_money)
-
-        print("See you again! :D")
-
-    else:
-        if os.path.isdir(PATHTOOS):
-            print("Seems you lost your data... apologies. We will have to start new.")
-        else:
-            print("You're new here. We will create a directory for your items.")
-            os.mkdir(PATHTOOS)
-            print("Path made. We will handle your finances now.\n")
-
-        u_money = Money()
-        print("How much money do you have right now? Only enter a number.")
-        uc_money = input("Enter a number: ")
-        u_money.set_balance(int(uc_money))
-
-        print("Good job. Now enter how much you constantly spend.")
-        uc_money = input("Enter a number: ")
-        u_money.set_const_purch(int(uc_money))
-
-        print("Great, we'll start handling your finances now. \n")
-        finance_handler(u_money)
-
-        print("Goodbye :D")
+    try:
+        FILELOCATION.parent.mkdir(parents=True, exist_ok=True)
+        directory = os.open(FILELOCATION.parent, os.O_RDONLY)
+        try:
+            fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finance_handler()
+        finally:
+            os.close(directory)
+    except BlockingIOError:
+        raise SystemExit("Your budget is already open. Finish that session first.")
+    except (EOFError, KeyboardInterrupt):
+        raise SystemExit("\nBudget entry cancelled.")
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise SystemExit(f"Could not load or save your budget at {FILELOCATION}: {error}")
 
 
 if __name__ == "__main__":
